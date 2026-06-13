@@ -1,0 +1,11 @@
+CompileFlags:
+  Remove:
+    - -mlongcalls
+    - -fno-builtin-memcpy
+    - -fno-builtin-memset
+    - -fno-builtin-bzero
+    - -fno-builtin-stpcpy
+    - -fno-builtin-strncpy
+    - -fno-shrink-wrap
+    - -fno-jump-tables
+    - -fno-tree-switch-conversion
