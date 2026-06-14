@@ -3,26 +3,44 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys/time.h>
+
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_log_level.h"
+#include "esp_sntp.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "chess.h"
 #include "http.h"
 #include "json.h"
 #include "wifi.h"
 
+static esp_err_t check_http_status(esp_http_client_handle_t clt) {
+  int status = esp_http_client_get_status_code(clt);
+  if (status >= 400) {
+    ESP_LOGE("http", "HTTP %d response", status);
+    return ESP_FAIL;
+  }
+  return ESP_OK;
+}
+
 esp_err_t create_seek(esp_http_client_handle_t clt) {
   esp_http_client_set_url(clt, "https://lichess.org/api/board/seek");
   esp_http_client_set_method(clt, HTTP_METHOD_POST);
   esp_http_client_set_post_field(
       clt, "rated=true&variant=standard&time=15&increment=15&color=white", -1);
-  return esp_http_client_perform(clt);
+  esp_http_client_set_header(clt, "Content-Type",
+                             "application/x-www-form-urlencoded");
+  esp_err_t err = esp_http_client_perform(clt);
+  return err == ESP_OK ? check_http_status(clt) : err;
 }
 
 esp_err_t set_move(char *player_id, struct Move move,
@@ -30,10 +48,10 @@ esp_err_t set_move(char *player_id, struct Move move,
 
   char url[128];
   char move_str[8];
-  char move_from_hor = (move.from >> 4) + 97;
-  char move_from_ver = (move.from & 0x0F) + 48;
-  char move_to_hor = (move.to >> 4) + 97;
-  char move_to_ver = (move.to & 0x0F) + 48;
+  char move_from_hor = (move.from >> 4) + 'a';
+  char move_from_ver = (move.from & 0x0F) + '1';
+  char move_to_hor = (move.to >> 4) + 'a';
+  char move_to_ver = (move.to & 0x0F) + '1';
 
   snprintf(move_str, sizeof(move_str), "%c%c%c%c", move_from_hor, move_from_ver,
            move_to_hor, move_to_ver);
@@ -43,7 +61,8 @@ esp_err_t set_move(char *player_id, struct Move move,
 
   esp_http_client_set_url(clt, url);
   esp_http_client_set_method(clt, HTTP_METHOD_POST);
-  return esp_http_client_perform(clt);
+  esp_err_t err = esp_http_client_perform(clt);
+  return err == ESP_OK ? check_http_status(clt) : err;
 }
 
 void app_main(void) {
@@ -63,6 +82,23 @@ void app_main(void) {
     ESP_LOGE(TAG, "WiFi connection failed, aborting");
     return;
   }
+
+  esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+  esp_sntp_setservername(0, "pool.ntp.org");
+  esp_sntp_init();
+
+  time_t now = 0;
+  struct tm timeinfo = {0};
+  int retry = 0;
+  while (timeinfo.tm_year < (2024 - 1900) && ++retry < 30) {
+    ESP_LOGI(TAG, "waiting for NTP time sync... (%d)", retry);
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    time(&now);
+    localtime_r(&now, &timeinfo);
+  }
+  char strftime_buf[64];
+  strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+  ESP_LOGI(TAG, "current time: %s", strftime_buf);
 
   char *response_buffer = (char *)calloc(MAX_HTTP_RECV_BUFFER, 1);
 

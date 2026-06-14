@@ -2,24 +2,15 @@
 
 ## Project
 
-- **PlatformIO + ESP-IDF** (6.0.1), board `esp32dev` (4 MB flash), C (`xtensa-esp32-elf-gcc`), debug build (`-Og -g2`)
+- **PlatformIO + ESP-IDF 6.0.1**, board `esp32dev` (4 MB flash), C (`xtensa-esp32-elf-gcc`), debug build (`-Og -g2`)
 - **Purpose**: DGT digital chess board → Lichess online play
-- **Single entrypoint**: `src/main.c` → `app_main()` — NVS → WiFi STA → HTTPS GET `/api/account` with Bearer token → JSON parsed via `jsmn`
-- **Modules** under `src/`:
-  - `chess.h` — chess types (`Piece`, `Move`, `Player`, `Game`, enums)
-  - `wifi.h` / `wifi.c` — WiFi STA init (blocking, retries up to 10)
-  - `http.h` / `http.c` — HTTP(S) client, Lichess API config & event handler
-  - `json.h` / `json.c` — jsmn wrapper (`json_parse`, `json_get_value`, `json_free`)
-  - `main.c` — app lifecycle orchestration
-- `src/CMakeLists.txt` uses `FILE(GLOB_RECURSE ...)` — every `.c` under `src/` is auto-compiled
-- `include/jsmn.h` — header-only library with function bodies; only `json.c` defines `JSMN_STATIC` to avoid duplicate symbols
-- `compile_commands.json` is stale (generated for prior build); regenerate via `pio run`
-- `.clangd` strips certain ESP-IDF flags (`-mlongcalls`, `-fno-*` etc.) for clangd compatibility
+- **Single entrypoint**: `src/main.c` → `app_main()`
+  - NVS flash init → blocking WiFi STA (retries up to 10) → HTTPS GET `/api/account` → parse `id` via jsmn → POST `/api/board/seek` → POST `/api/board/game/{id}/move/{move}`
 
 ## Build / Flash / Monitor
 
 ```
-pio run                          # build
+pio run                          # build (also regenerates compile_commands.json)
 pio run -t upload                # flash via /dev/ttyACM1
 pio run -t monitor               # serial console (115200 baud, raw mode)
 pio run -t upload -t monitor     # flash then monitor
@@ -27,17 +18,45 @@ pio run -t upload -t monitor     # flash then monitor
 
 - `.pio/` is build output (gitignored)
 
+## Modules
+
+| File(s) | Role |
+|---|---|
+| `src/chess.h` | Types: `Piece`, `Move`, `Player`, `Game`, `Event`, `PendingMove`, enums |
+| `src/wifi.{h,c}` | Blocking STA init (retry up to 10, hard timeout via event group) |
+| `src/http.{h,c}` | `esp_http_client` wrapper; Lichess host/path/token constants; event handler accumulates response into caller buffer |
+| `src/json.{h,c}` | jsmn wrapper: `json_parse`, `json_get_value`, `json_free` |
+| `include/jsmn.h` | Header-only tokeniser; only `json.c` defines `JSMN_STATIC` to avoid duplicate symbols |
+
+- `src/CMakeLists.txt` uses `FILE(GLOB_RECURSE)` — every `.c` under `src/` is auto-compiled
+- `.clangd` strips ESP-IDF flags (`-mlongcalls`, `-fno-*`) for clangd compatibility (no effect on build)
+
+## Secrets
+
+Credentials live in `src/secrets.h` (gitignored). Template at `src/secrets.h.example`:
+
+```c
+#define WIFI_SSID     "your_wifi_ssid"
+#define WIFI_PASSKEY  "your_wifi_password"
+#define LICHESS_TOKEN "your_lichess_api_token"
+```
+
+Both `src/wifi.h` and `src/http.h` include `secrets.h`. The token is sent as `Authorization: Bearer <LICHESS_TOKEN>`. **Do not commit real credentials.** `.gitignore` covers `.pio/`, `src/secrets.h`, and `sdkconfig.esp32dev.old`.
+
+## Move encoding
+
+`struct Move` uses packed nibble format: `from`/`to` are `uint8_t` where the high nibble is file (0–7, mapped to `a–h` via `+ 97`) and the low nibble is rank (0–7, mapped to `1–8` via `+ 48`).
+
 ## Formatting
 
 ```
 clang-format -i src/*.c include/*.h
 ```
 
-- LLVM base style, `IndentWidth: 4`, `IndentCaseLabels: true` — see `.clang-format`
+Style: LLVM base, `IndentWidth: 4`, `IndentCaseLabels: true`. No `.clang-format` file in this repo — relies on defaults or a global config.
 
 ## Constraints
 
-- WiFi SSID/passkey (`src/wifi.h`) and Lichess Bearer token (`src/http.h`) are hardcoded — **do not commit real credentials**
-- `.gitignore` only covers `.pio/` — everything else (`sdkconfig.*`, credentials, etc.) will be tracked unless explicitly ignored
-- `sdkconfig.esp32dev` — ESP-IDF SDK config; `sdkconfig.esp32dev.old` is a stale backup; do not hand-edit unless you understand ESP-IDF Kconfig
-- No tests exist; no test framework configured
+- No test framework configured; `test/` directory contains only a PlatformIO README.
+- `sdkconfig.esp32dev` is the ESP-IDF SDK config; do not hand-edit unless you understand ESP-IDF Kconfig.
+- `compile_commands.json` is stale after builds — regenerate via `pio run`.
