@@ -9,7 +9,7 @@
 
 #include "http.h"
 
-#define min(a, b) a > b ? b : a
+#define min(a, b) ((a) > (b) ? (b) : (a))
 
 esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
   const char *TAG = "_http_event_handler";
@@ -83,13 +83,11 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
       output_len += copy_len;
     } else {
       char *buffer = (char *)evt->user_data;
-
       int copy_len = evt->data_len;
       if (output_len + copy_len > MAX_HTTP_OUTPUT_BUFFER - 1) {
         copy_len = (MAX_HTTP_OUTPUT_BUFFER - 1) - output_len;
         ESP_LOGW(TAG, "response too large, truncating data...");
       }
-
       if (copy_len > 0) {
         memcpy(buffer + output_len, evt->data, copy_len);
         output_len += copy_len;
@@ -111,15 +109,26 @@ esp_http_client_handle_t http_init(char *response_buffer,
   return clt;
 }
 
-void http_get(esp_http_client_handle_t clt, char *response_buffer) {
-  const char *TAG = "HTTP_GET_REQUEST";
+void http_get(esp_http_client_handle_t clt, const char *url) {
+  const char *TAG = "http_get";
+  esp_http_client_set_url(clt, url);
+  esp_http_client_set_method(clt, HTTP_METHOD_GET);
   esp_err_t err = esp_http_client_perform(clt);
-
   if (err == ESP_OK)
     ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %" PRId64,
              esp_http_client_get_status_code(clt),
              esp_http_client_get_content_length(clt));
   else
     ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
-  // ESP_LOG_BUFFER_HEX(TAG, response_buffer, strlen(response_buffer));
+}
+
+esp_err_t http_post(esp_http_client_handle_t clt, const char *url,
+                    const char *content_type, const char *body) {
+  esp_http_client_set_url(clt, url);
+  esp_http_client_set_method(clt, HTTP_METHOD_POST);
+  if (content_type)
+    esp_http_client_set_header(clt, "Content-Type", content_type);
+  int body_len = body ? (int)strlen(body) : 0;
+  esp_http_client_set_post_field(clt, body, body_len);
+  return esp_http_client_perform(clt);
 }

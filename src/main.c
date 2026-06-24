@@ -2,72 +2,121 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 #include <sys/time.h>
 
 #include "esp_crt_bundle.h"
 #include "esp_err.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
-#include "esp_log_level.h"
 #include "esp_sntp.h"
 #include "nvs.h"
 #include "nvs_flash.h"
-#include "sdkconfig.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "board.h"
 #include "chess.h"
 #include "http.h"
 #include "json.h"
 #include "wifi.h"
 
+static const char *TAG = "app_main";
+
+// Maximum PGN body size for the broadcast push.
+// A full 100-move game with headers fits comfortably inside 4 KB.
+#define PGN_BUF_SIZE 4096
+
 static esp_err_t check_http_status(esp_http_client_handle_t clt) {
   int status = esp_http_client_get_status_code(clt);
   if (status >= 400) {
-    ESP_LOGE("http", "HTTP %d response", status);
+    ESP_LOGE(TAG, "HTTP %d", status);
     return ESP_FAIL;
   }
   return ESP_OK;
 }
 
-esp_err_t create_seek(esp_http_client_handle_t clt) {
-  esp_http_client_set_url(clt, "https://lichess.org/api/board/seek");
-  esp_http_client_set_method(clt, HTTP_METHOD_POST);
-  esp_http_client_set_post_field(
-      clt, "rated=true&variant=standard&time=15&increment=15&color=white", -1);
-  esp_http_client_set_header(clt, "Content-Type",
-                             "application/x-www-form-urlencoded");
-  esp_err_t err = esp_http_client_perform(clt);
-  return err == ESP_OK ? check_http_status(clt) : err;
+// Parses the first "id" string field from the JSON currently in response_buffer
+// into out (null-terminated). Clears response_buffer afterwards.
+static esp_err_t parse_id(const char *response_buffer, char *out,
+                           size_t out_size) {
+  struct json j = json_parse(response_buffer, strlen(response_buffer), 256);
+  if (!j.tokens)
+    return ESP_FAIL;
+
+  int id_len = 0;
+  const char *id = json_get_value(&j, response_buffer, "id", &id_len);
+  if (id && id_len > 0) {
+    int copy = id_len < (int)out_size - 1 ? id_len : (int)out_size - 1;
+    memcpy(out, id, copy);
+    out[copy] = '\0';
+  }
+  json_free(&j);
+  return out[0] ? ESP_OK : ESP_FAIL;
 }
 
-esp_err_t set_move(char *player_id, struct Move move,
-                   esp_http_client_handle_t clt) {
+// Creates a Lichess broadcast tournament and its first round.
+// Logs the spectator URL to the serial console.
+// tour_id and round_id must be at least 32 bytes each.
+static esp_err_t create_broadcast(esp_http_client_handle_t clt,
+                                   char *response_buffer, char *tour_id,
+                                   char *round_id) {
+  esp_http_client_set_header(clt, "Authorization", BEARER_TOKEN);
 
-  char url[128];
-  char move_str[8];
-  char move_from_hor = (move.from >> 4) + 'a';
-  char move_from_ver = (move.from & 0x0F) + '1';
-  char move_to_hor = (move.to >> 4) + 'a';
-  char move_to_ver = (move.to & 0x0F) + '1';
+  // 1. Create tournament
+  esp_err_t err =
+      http_post(clt, "https://lichess.org/api/broadcast/new",
+                "application/x-www-form-urlencoded",
+                "name=Physical+Chess&shortDescription=OTB+game");
+  if (err != ESP_OK || check_http_status(clt) != ESP_OK)
+    return ESP_FAIL;
 
-  snprintf(move_str, sizeof(move_str), "%c%c%c%c", move_from_hor, move_from_ver,
-           move_to_hor, move_to_ver);
+  if (parse_id(response_buffer, tour_id, 32) != ESP_OK) {
+    ESP_LOGE(TAG, "failed to parse broadcast tournament id");
+    return ESP_FAIL;
+  }
+  memset(response_buffer, 0, MAX_HTTP_RECV_BUFFER);
+
+  // 2. Create round inside the tournament
+  char round_url[96];
+  snprintf(round_url, sizeof(round_url),
+           "https://lichess.org/api/broadcast/%s/new", tour_id);
+  err = http_post(clt, round_url, "application/x-www-form-urlencoded",
+                  "name=Game+1");
+  if (err != ESP_OK || check_http_status(clt) != ESP_OK)
+    return ESP_FAIL;
+
+  if (parse_id(response_buffer, round_id, 32) != ESP_OK) {
+    ESP_LOGE(TAG, "failed to parse broadcast round id");
+    return ESP_FAIL;
+  }
+  memset(response_buffer, 0, MAX_HTTP_RECV_BUFFER);
+
+  ESP_LOGI(TAG, "Broadcast: https://lichess.org/broadcast/-/%s", round_id);
+  return ESP_OK;
+}
+
+// Pushes the current PGN to the broadcast round.
+// Lichess accepts incremental pushes; each call replaces the previous state.
+static esp_err_t push_pgn(esp_http_client_handle_t clt, const char *round_id,
+                           const char *pgn) {
+  char url[96];
   snprintf(url, sizeof(url),
-           "https://lichess.org/api/board/game/%s/move/%s?offeringDraw=false",
-           player_id, move_str);
-
-  esp_http_client_set_url(clt, url);
-  esp_http_client_set_method(clt, HTTP_METHOD_POST);
-  esp_err_t err = esp_http_client_perform(clt);
-  return err == ESP_OK ? check_http_status(clt) : err;
+           "https://lichess.org/api/broadcast/round/%s/push", round_id);
+  esp_err_t err = http_post(clt, url, "text/plain", pgn);
+  if (err != ESP_OK || check_http_status(clt) != ESP_OK) {
+    ESP_LOGE(TAG, "pgn push failed");
+    return ESP_FAIL;
+  }
+  return ESP_OK;
 }
 
 void app_main(void) {
-  const char *TAG = "app_main";
+  char *response_buffer = NULL;
+  char *pgn_buf = NULL;
+  esp_http_client_handle_t clt = NULL;
 
+  // NVS flash init
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -76,90 +125,125 @@ void app_main(void) {
   }
   ESP_ERROR_CHECK(ret);
 
-  esp_log_level_set("wifi", CONFIG_LOG_MAXIMUM_LEVEL);
-  ESP_LOGI(TAG, "starting WiFi");
+  // WiFi
+  ESP_LOGI(TAG, "connecting to WiFi");
   if (wifi_init_sta() != ESP_OK) {
-    ESP_LOGE(TAG, "WiFi connection failed, aborting");
+    ESP_LOGE(TAG, "WiFi failed, aborting");
     return;
   }
 
+  // SNTP — TLS certificate validation requires a valid system clock
   esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
   esp_sntp_setservername(0, "pool.ntp.org");
   esp_sntp_init();
-
-  time_t now = 0;
-  struct tm timeinfo = {0};
-  int retry = 0;
-  while (timeinfo.tm_year < (2024 - 1900) && ++retry < 30) {
-    ESP_LOGI(TAG, "waiting for NTP time sync... (%d)", retry);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
-    time(&now);
-    localtime_r(&now, &timeinfo);
+  {
+    time_t now = 0;
+    struct tm timeinfo = {0};
+    int sntp_retry = 0;
+    while (timeinfo.tm_year < (2024 - 1900) && ++sntp_retry < 30) {
+      ESP_LOGI(TAG, "waiting for NTP sync... (%d)", sntp_retry);
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      time(&now);
+      localtime_r(&now, &timeinfo);
+    }
   }
-  char strftime_buf[64];
-  strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
-  ESP_LOGI(TAG, "current time: %s", strftime_buf);
 
-  char *response_buffer = (char *)calloc(MAX_HTTP_RECV_BUFFER, 1);
+  // HTTP client
+  response_buffer = (char *)calloc(MAX_HTTP_RECV_BUFFER, 1);
+  pgn_buf = (char *)calloc(PGN_BUF_SIZE, 1);
+  if (!response_buffer || !pgn_buf) {
+    ESP_LOGE(TAG, "failed to alloc buffers");
+    goto cleanup;
+  }
 
   esp_http_client_config_t cfg = {
-      .host = HTTP_HOST,
-      .path = HTTP_PATH,
-      .query = HTTP_QUERY,
-      .transport_type = HTTP_TRANSPORT_OVER_SSL,
-      .event_handler = _http_event_handler,
-      .user_data = response_buffer,
+      .host              = HTTP_HOST,
+      .path              = HTTP_PATH,
+      .transport_type    = HTTP_TRANSPORT_OVER_SSL,
+      .event_handler     = _http_event_handler,
+      .user_data         = response_buffer,
       .crt_bundle_attach = esp_crt_bundle_attach,
-      .timeout_ms = 0,
+      .timeout_ms        = 10000,
   };
+  clt = http_init(response_buffer, &cfg);
 
-  esp_http_client_handle_t clt = http_init(response_buffer, &cfg);
-  esp_http_client_set_header(clt, "Authorization", BEARER_TOKEN);
-  http_get(clt, response_buffer);
+  // Create the broadcast — the spectator URL is logged to serial
+  char tour_id[32] = {0};
+  char round_id[32] = {0};
+  struct Game game;
+  board_init(&game);
 
-  struct Player player = {0};
+  if (create_broadcast(clt, response_buffer, tour_id, round_id) != ESP_OK) {
+    ESP_LOGE(TAG, "failed to create broadcast, aborting");
+    goto cleanup;
+  }
 
-  {
-    struct json j = json_parse(response_buffer, strlen(response_buffer), 128);
-    // json_print(j, response_buffer, strlen(response_buffer));
+  // PGN_BUF_SIZE - 2 reserves the last two bytes for the trailing "* " + '\0'
+  // that is written temporarily during each push.
+  const int pgn_cap = PGN_BUF_SIZE - 2;
 
-    if (j.tokens) {
-      int id_len = 0;
-      const char *id = json_get_value(&j, response_buffer, "id", &id_len);
-      if (id && id_len > 0) {
-        int copy = id_len < (int)sizeof(player.player_id) - 1
-                       ? id_len
-                       : (int)sizeof(player.player_id) - 1;
-        memcpy(player.player_id, id, copy);
-        player.player_id[copy] = '\0';
+  // Seed PGN header; pushed to Lichess after each move
+  int pgn_len =
+      snprintf(pgn_buf, pgn_cap,
+               "[Event \"Physical Chess\"]\n"
+               "[White \"White\"]\n"
+               "[Black \"Black\"]\n"
+               "[Result \"*\"]\n\n");
+
+  // Game loop
+  int move_num = 1;
+  bool skip_next = false;
+
+  while (1) {
+    struct Move m = scanb();
+
+    if (skip_next) {
+      // Rook physically moved after castling — board state was already updated
+      // when the king moved; just consume this scanb() without submitting.
+      skip_next = false;
+      continue;
+    }
+
+    // Generate SAN *before* applying the move (piece is still at m.from)
+    char san[9];
+    move_to_san(&game, m, san);
+
+    bool skip_next_out = false;
+    board_apply_move(&game, m, &skip_next_out);
+    skip_next = skip_next_out;
+
+    // Append move to PGN (leave the last 2 bytes free for the '*' push below)
+    if (pgn_len < pgn_cap) {
+      if (game.current_turn == WHITE) {
+        pgn_len += snprintf(pgn_buf + pgn_len, pgn_cap - pgn_len,
+                            "%d. %s ", move_num, san);
+      } else {
+        pgn_len += snprintf(pgn_buf + pgn_len, pgn_cap - pgn_len,
+                            "%s ", san);
+        move_num++;
       }
-      json_free(&j);
+      if (pgn_len > pgn_cap)
+        pgn_len = pgn_cap;
     }
-    memset(response_buffer, 0, strlen(response_buffer));
+
+    // Temporarily append '*' (ongoing game marker), push, then remove it.
+    // Avoids a second 4 KB buffer on the stack.
+    pgn_buf[pgn_len]     = '*';
+    pgn_buf[pgn_len + 1] = '\0';
+    esp_err_t err = push_pgn(clt, round_id, pgn_buf);
+    pgn_buf[pgn_len]     = '\0';
+    memset(response_buffer, 0, MAX_HTTP_RECV_BUFFER);
+
+    ESP_LOGI(TAG, "[%s] %s %s",
+             game.current_turn == WHITE ? "W" : "B", san,
+             err == ESP_OK ? "ok" : "push failed");
+
+    game.current_turn = (game.current_turn == WHITE) ? BLACK : WHITE;
   }
 
-  {
-    esp_err_t err = create_seek(clt);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "create_seek failed: %s", esp_err_to_name(err));
-    } else {
-      struct json j = json_parse(response_buffer, strlen(response_buffer), 128);
-      // json_print(j, response_buffer, strlen(response_buffer));
-      memset(response_buffer, 0, strlen(response_buffer));
-      json_free(&j);
-    }
-  }
-
-  {
-    struct Move move = {.from = 68, .to = 69};
-    esp_err_t err = set_move(player.player_id, move, clt);
-    ESP_LOGI(TAG, "set_move returned: %s", esp_err_to_name(err));
-    struct json j = json_parse(response_buffer, strlen(response_buffer), 128);
-    // json_print(j, response_buffer, strlen(response_buffer));
-    memset(response_buffer, 0, strlen(response_buffer));
-    json_free(&j);
-  }
-
-  esp_http_client_cleanup(clt);
+cleanup:
+  if (clt)
+    esp_http_client_cleanup(clt);
   free(response_buffer);
+  free(pgn_buf);
 }
