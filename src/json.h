@@ -4,8 +4,8 @@
 #include "jsmn.h"
 
 struct json {
-    jsmntok_t *tokens;
-    int count;
+  jsmntok_t *tokens;
+  int count;
 };
 
 struct json json_parse(const char *buf, int len, int max_tokens);

@@ -9,7 +9,15 @@
 void board_init(struct Game *game);
 
 // Scan the physical board for the next move.
-// Blocks until a piece has been lifted and placed.
+// Blocks until a piece has been lifted and placed elsewhere.
+// Real hardware (see pins.h): scans the 8x8 hall-effect sensor matrix via
+// the row 74HC595 shift registers, diffs against last-known occupancy, and
+// returns the (from, to) square pair once a lift and a subsequent place
+// have both been debounced. Known limitation: a capture recognized as two
+// near-simultaneous lifts (captured piece removed, then capturing piece
+// placed) is not specially handled yet — see project notes.
+// WOKWI_SIMULATION builds instead play back a fixed scripted opening so the
+// simulator has something to push to Lichess without needing real sensors.
 struct Move scanb(void);
 
 // Apply move to the internal board state (captures, en passant, promotion,
@@ -26,7 +34,8 @@ void move_to_uci(struct Move m, bool is_promotion, char *buf);
 // Must be called BEFORE board_apply_move so the piece is still at m.from.
 // Examples: "e4", "Nf3", "exd5", "O-O", "e8=Q"
 // Note: does not append check (+) or checkmate (#) markers.
-// Note: does not resolve ambiguity (two same-type pieces reaching the same square);
+// Note: does not resolve ambiguity (two same-type pieces reaching the same
+// square);
 //       add from-file/rank disambiguation if needed for your games.
 void move_to_san(const struct Game *game, struct Move m, char *buf);
 

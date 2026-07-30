@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -7,12 +8,15 @@
 #include "esp_tls.h"
 #include "esp_tls_errors.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 #include "http.h"
 
-#define min(a, b) ((a) > (b) ? (b) : (a))
+static inline int min_int(int a, int b) { return a < b ? a : b; }
 
-esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
-  const char *TAG = "_http_event_handler";
+esp_err_t http_event_handler(esp_http_client_event_t *evt) {
+  const char *TAG = "http_event_handler";
   static char *output_buffer;
   static int output_len;
   switch (evt->event_id) {
@@ -40,7 +44,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
     }
     output_len = 0;
     break;
-  case HTTP_EVENT_DISCONNECTED:
+  case HTTP_EVENT_DISCONNECTED: {
     ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
     int mbedtls_err = 0;
     esp_err_t err = esp_tls_get_and_clear_last_error(
@@ -51,6 +55,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
     }
     output_len = 0;
     break;
+  }
   case HTTP_EVENT_REDIRECT:
     ESP_LOGI(TAG, "HTTP_EVENT_REDIRECT");
     break;
@@ -63,7 +68,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
     if (!esp_http_client_is_chunked_response(evt->client)) {
       int copy_len = 0;
       if (evt->user_data) {
-        copy_len = min(evt->data_len, (MAX_HTTP_OUTPUT_BUFFER - output_len));
+        copy_len = min_int(evt->data_len, MAX_HTTP_OUTPUT_BUFFER - output_len);
         if (copy_len)
           memcpy(evt->user_data + output_len, evt->data, copy_len);
       } else {
@@ -76,12 +81,16 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
             return ESP_FAIL;
           }
         }
-        copy_len = min(evt->data_len, (content_len - output_len));
+        copy_len = min_int(evt->data_len, content_len - output_len);
         if (copy_len)
           memcpy(output_buffer + output_len, evt->data, copy_len);
       }
       output_len += copy_len;
     } else {
+      if (!evt->user_data) {
+        ESP_LOGE(TAG, "chunked response requires a user_data buffer");
+        return ESP_FAIL;
+      }
       char *buffer = (char *)evt->user_data;
       int copy_len = evt->data_len;
       if (output_len + copy_len > MAX_HTTP_OUTPUT_BUFFER - 1) {
@@ -122,13 +131,30 @@ void http_get(esp_http_client_handle_t clt, const char *url) {
     ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
 }
 
+// Retries on transient connect/handshake failures (e.g. a dropped TLS
+// ClientHello); a fresh esp_http_client_perform() call re-opens the
+// underlying connection each time.
+#define HTTP_POST_MAX_ATTEMPTS 3
+
 esp_err_t http_post(esp_http_client_handle_t clt, const char *url,
                     const char *content_type, const char *body) {
+  const char *TAG = "http_post";
   esp_http_client_set_url(clt, url);
   esp_http_client_set_method(clt, HTTP_METHOD_POST);
   if (content_type)
     esp_http_client_set_header(clt, "Content-Type", content_type);
   int body_len = body ? (int)strlen(body) : 0;
   esp_http_client_set_post_field(clt, body, body_len);
-  return esp_http_client_perform(clt);
+
+  esp_err_t err = ESP_FAIL;
+  for (int attempt = 1; attempt <= HTTP_POST_MAX_ATTEMPTS; attempt++) {
+    err = esp_http_client_perform(clt);
+    if (err == ESP_OK)
+      break;
+    ESP_LOGW(TAG, "attempt %d/%d failed: %s", attempt, HTTP_POST_MAX_ATTEMPTS,
+             esp_err_to_name(err));
+    if (attempt < HTTP_POST_MAX_ATTEMPTS)
+      vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+  return err;
 }

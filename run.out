@@ -1,0 +1,162 @@
+Wokwi CLI v0.26.1 (9d71b975b7eb)
+Connected to Wokwi Simulation API 1.0.0-20260717-g64cc19ca
+Starting simulation...
+ets Jul 29 2019 12:21:46
+
+rst:0x1 (POWERON_RESET),boot:0x13 (SPI_FAST_FLASH_BOOT)
+configsip: 0, SPIWP:0xee
+clk_drv:0x00,q_drv:0x00,d_drv:0x00,cs0_drv:0x00,hd_drv:0x00,wp_drv:0x00
+mode:DIO, clock div:2
+load:0x3fff0030,len:6380
+ho 0 tail 12 room 4
+load:0x40078000,len:15916
+load:0x40080400,len:3860
+entry 0x40080630
+I (12) boot: ESP-IDF 5.5.0 2nd stage bootloader
+I (13) boot: compile time Jul 29 2026 21:43:09
+I (13) boot: Multicore bootloader
+I (14) boot: chip revision: v3.0
+I (16) boot.esp32: SPI Speed      : 40MHz
+I (19) boot.esp32: SPI Mode       : DIO
+I (23) boot.esp32: SPI Flash Size : 2MB
+I (27) boot: Enabling RNG early entropy source...
+I (31) boot: Partition Table:
+I (34) boot: ## Label            Usage          Type ST Offset   Length
+I (40) boot:  0 nvs              WiFi data        01 02 00009000 00006000
+I (47) boot:  1 phy_init         RF data          01 01 0000f000 00001000
+I (53) boot:  2 factory          factory app      00 00 00010000 00100000
+I (60) boot: End of partition table
+I (63) esp_image: segment 0: paddr=00010020 vaddr=3f400020 size=1dcc8h (122056) map
+I (223) esp_image: segment 1: paddr=0002dcf0 vaddr=3ff80000 size=00020h (    32) load
+I (224) esp_image: segment 2: paddr=0002dd18 vaddr=3ffb0000 size=02300h (  8960) load
+I (240) esp_image: segment 3: paddr=00030020 vaddr=400d0020 size=a2cf0h (666864) map
+I (1072) esp_image: segment 4: paddr=000d2d18 vaddr=3ffb2300 size=01c6ch (  7276) load
+I (1083) esp_image: segment 5: paddr=000d498c vaddr=40080000 size=17f48h ( 98120) load
+I (1265) boot: Loaded app from partition at offset 0x10000
+I (1265) boot: Disabling RNG early entropy source...
+I (1278) cpu_start: Multicore app
+I (641) cpu_start: Pro cpu start user code
+I (641) cpu_start: cpu freq: 160000000 Hz
+I (642) app_init: Application information:
+I (642) app_init: Project name:     dgt
+I (645) app_init: App version:      f07d8f2-dirty
+I (649) app_init: Compile time:     Jul 29 2026 21:42:09
+I (654) app_init: ELF file SHA256:  dbcdb3e1c...
+I (658) app_init: ESP-IDF:          5.5.0
+I (662) efuse_init: Min chip rev:     v0.0
+I (666) efuse_init: Max chip rev:     v3.99 
+I (670) efuse_init: Chip rev:         v3.0
+I (675) heap_init: Initializing. RAM available for dynamic allocation:
+I (680) heap_init: At 3FFAE6E0 len 00001920 (6 KiB): DRAM
+I (686) heap_init: At 3FFB8670 len 00027990 (158 KiB): DRAM
+I (691) heap_init: At 3FFE0440 len 00003AE0 (14 KiB): D/IRAM
+I (696) heap_init: At 3FFE4350 len 0001BCB0 (111 KiB): D/IRAM
+I (702) heap_init: At 40097F48 len 000080B8 (32 KiB): IRAM
+I (708) spi_flash: detected chip: winbond
+I (710) spi_flash: flash io: dio
+I (716) main_task: Started on CPU0
+I (726) main_task: Calling app_main()
+I (746) app_main: connecting to WiFi
+I (776) wifi:wifi driver task: 3ffc167c, prio:23, stack:6656, core=0
+I (786) wifi:wifi firmware version: f3dbad7
+I (796) wifi:wifi certification version: v7.0
+I (796) wifi:config NVS flash: enabled
+I (796) wifi:config nano formatting: disabled
+I (796) wifi:Init data frame dynamic rx buffer num: 32
+I (806) wifi:Init static rx mgmt buffer num: 5
+I (806) wifi:Init management short buffer num: 32
+I (806) wifi:Init dynamic tx buffer num: 32
+I (816) wifi:Init static rx buffer size: 1600
+I (816) wifi:Init static rx buffer num: 10
+I (826) wifi:Init dynamic rx buffer num: 32
+I (826) wifi_init: rx ba win: 6
+I (826) wifi_init: accept mbox: 6
+I (826) wifi_init: tcpip mbox: 32
+I (836) wifi_init: udp mbox: 6
+I (836) wifi_init: tcp mbox: 6
+I (836) wifi_init: tcp tx win: 5760
+I (846) wifi_init: tcp rx win: 5760
+I (846) wifi_init: tcp mss: 1440
+I (846) wifi_init: WiFi IRAM OP enabled
+I (856) wifi_init: WiFi RX IRAM OP enabled
+I (856) wifi_init_sta: Wokwi-GUEST
+I (986) phy_init: phy_version 4860,6b7a6e5,Feb  6 2025,14:47:07
+W (986) phy_init: failed to load RF calibration data (0x1102), falling back to full calibration
+I (1126) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(2)
+I (1186) wifi:mode : sta (24:0a:c4:00:01:10)
+I (1186) wifi:enable tsf
+I (1186) wifi_init_sta: wifi_init_sta finished
+I (1796) wifi:new:<6,0>, old:<1,0>, ap:<255,255>, sta:<6,0>, prof:1, snd_ch_cfg:0x0
+I (1796) wifi:state: init -> auth (0xb0)
+I (1806) wifi:state: auth -> assoc (0x0)
+I (1806) wifi:state: assoc -> run (0x10)
+I (1816) wifi:connected with Wokwi-GUEST, aid = 1, channel 6, BW20, bssid = 42:13:37:55:aa:01
+I (1816) wifi:security: Open Auth, phy: bg, rssi: -86
+I (1856) wifi:pm start, type: 1
+
+I (1856) wifi:dp: 1, bi: 102400, li: 3, scale listen interval from 307200 us to 307200 us
+I (1856) wifi:dp: 2, bi: 102400, li: 4, scale listen interval from 307200 us to 409600 us
+I (1866) wifi:AP's beacon interval = 102400 us, DTIM period = 2
+I (2876) esp_netif_handlers: sta ip: 10.13.37.2, mask: 255.255.255.0, gw: 10.13.37.1
+I (2876) wifi_station: got ip:10.13.37.2
+I (2876) wifi_init_sta: connected to AP: Wokwi-GUEST
+I (2876) app_main: waiting for NTP sync... (1)
+I (3886) app_main: waiting for NTP sync... (2)
+I (4886) app_main: waiting for NTP sync... (3)
+I (5886) http_init: configured http client
+E (11226) task_wdt: Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+E (11226) task_wdt:  - IDLE0 (CPU 0)
+E (11226) task_wdt: Tasks currently running:
+E (11226) task_wdt: CPU 0: main
+E (11226) task_wdt: CPU 1: IDLE1
+E (11226) task_wdt: Print CPU 0 (current core) backtrace
+
+
+Backtrace: 0x400DAE92:0x3FFB1F60 0x400DB254:0x3FFB1F80 0x4008632D:0x3FFB1FB0 0x4016CE40:0x3FFBB1E0 0x40118219:0x3FFBB200 0x40110912:0x3FFBB230 0x40110B59:0x3FFBB250 0x401115DB:0x3FFBB280 0x4011200B:0x3FFBB300 0x40112051:0x3FFBB340 0x4010FCE7:0x3FFBB370 0x4010FEB2:0x3FFBB3D0 0x4010FEDE:0x3FFBB400 0x401100C7:0x3FFBB420 0x401234C6:0x3FFBB450 0x401238EC:0x3FFBB480 0x4012153F:0x3FFBB4A0 0x401215A5:0x3FFBB4C0 0x400D4AF9:0x3FFBB4E0 0x400D42D5:0x3FFBB500 0x400D4502:0x3FFBB520 0x400D4620:0x3FFBB560 0x400FC026:0x3FFBB590 0x40169FE5:0x3FFBB5C0 0x400D768A:0x3FFBB5E0 0x400D81D8:0x3FFBB610 0x400D2B9E:0x3FFBB640 0x400D3186:0x3FFBB670 0x400D340C:0x3FFBB6F0 0x40170F38:0x3FFBBB70 0x40089BF1:0x3FFBBBA0
+
+E (12096) esp-tls-mbedtls: mbedtls_ssl_handshake returned -0x0050
+E (12096) esp-tls: Failed to open new connection
+E (12096) transport_base: Failed to open a new connection
+E (12106) HTTP_CLIENT: Connection failed, sock < 0
+I (12106) http_event_handler: HTTP_EVENT_ERROR
+W (12106) http_post: attempt 1/3 failed: ESP_ERR_HTTP_CONNECT
+E (18366) task_wdt: Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+E (18366) task_wdt:  - IDLE0 (CPU 0)
+E (18366) task_wdt: Tasks currently running:
+E (18366) task_wdt: CPU 0: main
+E (18366) task_wdt: CPU 1: IDLE1
+E (18366) task_wdt: Print CPU 0 (current core) backtrace
+
+
+Backtrace: 0x400DAE92:0x3FFB1F60 0x400DB254:0x3FFB1F80 0x4008632D:0x3FFB1FB0 0x4016B0E0:0x3FFBB1D0 0x4010CDA2:0x3FFBB1F0 0x401108EB:0x3FFBB210 0x4011091D:0x3FFBB230 0x40110B3B:0x3FFBB250 0x401115DB:0x3FFBB280 0x4011200B:0x3FFBB300 0x40112051:0x3FFBB340 0x4010FCE7:0x3FFBB370 0x4010FEB2:0x3FFBB3D0 0x4010FEDE:0x3FFBB400 0x401100C7:0x3FFBB420 0x401234C6:0x3FFBB450 0x401238EC:0x3FFBB480 0x4012153F:0x3FFBB4A0 0x401215A5:0x3FFBB4C0 0x400D4AF9:0x3FFBB4E0 0x400D42D5:0x3FFBB500 0x400D4502:0x3FFBB520 0x400D4620:0x3FFBB560 0x400FC026:0x3FFBB590 0x40169FE5:0x3FFBB5C0 0x400D768A:0x3FFBB5E0 0x400D81D8:0x3FFBB610 0x400D2B9E:0x3FFBB640 0x400D3186:0x3FFBB670 0x400D340C:0x3FFBB6F0 0x40170F38:0x3FFBBB70 0x40089BF1:0x3FFBBBA0
+
+E (19246) esp-tls-mbedtls: mbedtls_ssl_handshake returned -0x0050
+E (19246) esp-tls: Failed to open new connection
+E (19246) transport_base: Failed to open a new connection
+E (19256) HTTP_CLIENT: Connection failed, sock < 0
+I (19256) http_event_handler: HTTP_EVENT_ERROR
+W (19256) http_post: attempt 2/3 failed: ESP_ERR_HTTP_CONNECT
+E (25526) task_wdt: Task watchdog got triggered. The following tasks/users did not reset the watchdog in time:
+E (25526) task_wdt:  - IDLE0 (CPU 0)
+E (25526) task_wdt: Tasks currently running:
+E (25526) task_wdt: CPU 0: main
+E (25526) task_wdt: CPU 1: IDLE1
+E (25526) task_wdt: Print CPU 0 (current core) backtrace
+
+
+Backtrace: 0x400DAE92:0x3FFB1F60 0x400DB254:0x3FFB1F80 0x4008632D:0x3FFB1FB0 0x4010CDBE:0x3FFBB1F0 0x401108EB:0x3FFBB210 0x4011091D:0x3FFBB230 0x40110B78:0x3FFBB250 0x401115DB:0x3FFBB280 0x4011200B:0x3FFBB300 0x40112051:0x3FFBB340 0x4010FCE7:0x3FFBB370 0x4010FEB2:0x3FFBB3D0 0x4010FEDE:0x3FFBB400 0x401100C7:0x3FFBB420 0x401234C6:0x3FFBB450 0x401238EC:0x3FFBB480 0x4012153F:0x3FFBB4A0 0x401215A5:0x3FFBB4C0 0x400D4AF9:0x3FFBB4E0 0x400D42D5:0x3FFBB500 0x400D4502:0x3FFBB520 0x400D4620:0x3FFBB560 0x400FC026:0x3FFBB590 0x40169FE5:0x3FFBB5C0 0x400D768A:0x3FFBB5E0 0x400D81D8:0x3FFBB610 0x400D2B9E:0x3FFBB640 0x400D3186:0x3FFBB670 0x400D340C:0x3FFBB6F0 0x40170F38:0x3FFBBB70 0x40089BF1:0x3FFBBBA0
+
+E (26416) esp-tls-mbedtls: mbedtls_ssl_handshake returned -0x0050
+E (26416) esp-tls: Failed to open new connection
+E (26416) transport_base: Failed to open a new connection
+E (26426) HTTP_CLIENT: Connection failed, sock < 0
+I (26426) http_event_handler: HTTP_EVENT_ERROR
+W (26436) http_post: attempt 3/3 failed: ESP_ERR_HTTP_CONNECT
+E (26436) app_main: failed to create broadcast, aborting
+I (26446) http_event_handler: HTTP_EVENT_DISCONNECTED
+E (26446) http_event_handler: esp error code: 0x801a
+E (26456) http_event_handler: mbedtls failure: 0x50
+I (26456) main_task: Returned from app_main()
+
+Timeout: simulation did not finish in 35000ms
+EXIT:42

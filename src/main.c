@@ -39,7 +39,7 @@ static esp_err_t check_http_status(esp_http_client_handle_t clt) {
 // Parses the first "id" string field from the JSON currently in response_buffer
 // into out (null-terminated). Clears response_buffer afterwards.
 static esp_err_t parse_id(const char *response_buffer, char *out,
-                           size_t out_size) {
+                          size_t out_size) {
   struct json j = json_parse(response_buffer, strlen(response_buffer), 256);
   if (!j.tokens)
     return ESP_FAIL;
@@ -59,15 +59,14 @@ static esp_err_t parse_id(const char *response_buffer, char *out,
 // Logs the spectator URL to the serial console.
 // tour_id and round_id must be at least 32 bytes each.
 static esp_err_t create_broadcast(esp_http_client_handle_t clt,
-                                   char *response_buffer, char *tour_id,
-                                   char *round_id) {
+                                  char *response_buffer, char *tour_id,
+                                  char *round_id) {
   esp_http_client_set_header(clt, "Authorization", BEARER_TOKEN);
 
   // 1. Create tournament
-  esp_err_t err =
-      http_post(clt, "https://lichess.org/api/broadcast/new",
-                "application/x-www-form-urlencoded",
-                "name=Physical+Chess&shortDescription=OTB+game");
+  esp_err_t err = http_post(clt, "https://lichess.org/api/broadcast/new",
+                            "application/x-www-form-urlencoded",
+                            "name=Physical+Chess&shortDescription=OTB+game");
   if (err != ESP_OK || check_http_status(clt) != ESP_OK)
     return ESP_FAIL;
 
@@ -99,10 +98,10 @@ static esp_err_t create_broadcast(esp_http_client_handle_t clt,
 // Pushes the current PGN to the broadcast round.
 // Lichess accepts incremental pushes; each call replaces the previous state.
 static esp_err_t push_pgn(esp_http_client_handle_t clt, const char *round_id,
-                           const char *pgn) {
+                          const char *pgn) {
   char url[96];
-  snprintf(url, sizeof(url),
-           "https://lichess.org/api/broadcast/round/%s/push", round_id);
+  snprintf(url, sizeof(url), "https://lichess.org/api/broadcast/round/%s/push",
+           round_id);
   esp_err_t err = http_post(clt, url, "text/plain", pgn);
   if (err != ESP_OK || check_http_status(clt) != ESP_OK) {
     ESP_LOGE(TAG, "pgn push failed");
@@ -157,14 +156,23 @@ void app_main(void) {
   }
 
   esp_http_client_config_t cfg = {
-      .host              = HTTP_HOST,
-      .path              = HTTP_PATH,
-      .transport_type    = HTTP_TRANSPORT_OVER_SSL,
-      .event_handler     = _http_event_handler,
-      .user_data         = response_buffer,
+      .host = HTTP_HOST,
+      .path = HTTP_PATH,
+      .transport_type = HTTP_TRANSPORT_OVER_SSL,
+      .event_handler = http_event_handler,
+      .user_data = response_buffer,
+#ifndef WOKWI_SIMULATION
       .crt_bundle_attach = esp_crt_bundle_attach,
-      .timeout_ms        = 10000,
+#endif
+      .timeout_ms = 30000,
   };
+#ifdef WOKWI_SIMULATION
+  // Skips server certificate verification: Wokwi's simulated CPU takes ~20s
+  // to do a full crt-bundle RSA/ECDSA chain verify, long enough to starve
+  // the task watchdog and stall the handshake. sdkconfig.wokwi enables
+  // CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY to allow this. Real hardware
+  // (sdkconfig.esp32dev) always verifies via crt_bundle_attach above.
+#endif
   clt = http_init(response_buffer, &cfg);
 
   // Create the broadcast — the spectator URL is logged to serial
@@ -183,12 +191,11 @@ void app_main(void) {
   const int pgn_cap = PGN_BUF_SIZE - 2;
 
   // Seed PGN header; pushed to Lichess after each move
-  int pgn_len =
-      snprintf(pgn_buf, pgn_cap,
-               "[Event \"Physical Chess\"]\n"
-               "[White \"White\"]\n"
-               "[Black \"Black\"]\n"
-               "[Result \"*\"]\n\n");
+  int pgn_len = snprintf(pgn_buf, pgn_cap,
+                         "[Event \"Physical Chess\"]\n"
+                         "[White \"White\"]\n"
+                         "[Black \"Black\"]\n"
+                         "[Result \"*\"]\n\n");
 
   // Game loop
   int move_num = 1;
@@ -215,11 +222,10 @@ void app_main(void) {
     // Append move to PGN (leave the last 2 bytes free for the '*' push below)
     if (pgn_len < pgn_cap) {
       if (game.current_turn == WHITE) {
-        pgn_len += snprintf(pgn_buf + pgn_len, pgn_cap - pgn_len,
-                            "%d. %s ", move_num, san);
+        pgn_len += snprintf(pgn_buf + pgn_len, pgn_cap - pgn_len, "%d. %s ",
+                            move_num, san);
       } else {
-        pgn_len += snprintf(pgn_buf + pgn_len, pgn_cap - pgn_len,
-                            "%s ", san);
+        pgn_len += snprintf(pgn_buf + pgn_len, pgn_cap - pgn_len, "%s ", san);
         move_num++;
       }
       if (pgn_len > pgn_cap)
@@ -228,14 +234,13 @@ void app_main(void) {
 
     // Temporarily append '*' (ongoing game marker), push, then remove it.
     // Avoids a second 4 KB buffer on the stack.
-    pgn_buf[pgn_len]     = '*';
+    pgn_buf[pgn_len] = '*';
     pgn_buf[pgn_len + 1] = '\0';
     esp_err_t err = push_pgn(clt, round_id, pgn_buf);
-    pgn_buf[pgn_len]     = '\0';
+    pgn_buf[pgn_len] = '\0';
     memset(response_buffer, 0, MAX_HTTP_RECV_BUFFER);
 
-    ESP_LOGI(TAG, "[%s] %s %s",
-             game.current_turn == WHITE ? "W" : "B", san,
+    ESP_LOGI(TAG, "[%s] %s %s", game.current_turn == WHITE ? "W" : "B", san,
              err == ESP_OK ? "ok" : "push failed");
 
     game.current_turn = (game.current_turn == WHITE) ? BLACK : WHITE;
