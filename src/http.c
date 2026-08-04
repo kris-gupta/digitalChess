@@ -153,6 +153,12 @@ esp_err_t http_post(esp_http_client_handle_t clt, const char *url,
       break;
     ESP_LOGW(TAG, "attempt %d/%d failed: %s", attempt, HTTP_POST_MAX_ATTEMPTS,
              esp_err_to_name(err));
+    // esp_http_client keeps the underlying connection open across perform()
+    // calls (HTTP keep-alive). If the server (or an idle-timeout proxy)
+    // silently closed a stale connection between requests, perform() alone
+    // just retries on the same dead socket and fails identically every time.
+    // Force a fresh connection before retrying.
+    esp_http_client_close(clt);
     if (attempt < HTTP_POST_MAX_ATTEMPTS)
       vTaskDelay(pdMS_TO_TICKS(1000));
   }

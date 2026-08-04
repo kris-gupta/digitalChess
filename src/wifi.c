@@ -63,18 +63,6 @@ esp_err_t wifi_init_sta(void) {
       IP_EVENT, IP_EVENT_STA_GOT_IP, &network_event_handler, NULL,
       &instance_acquired_ip));
 
-#ifdef WOKWI_SIMULATION
-  // Wokwi's virtual internet gateway is an open network reachable only
-  // under this SSID; a WPA/WPA2 threshold would reject its lack of auth.
-  wifi_config_t wifi_config = {
-      .sta =
-          {
-              .ssid = "Wokwi-GUEST",
-              .password = "",
-              .threshold.authmode = WIFI_AUTH_OPEN,
-          },
-  };
-#else
   wifi_config_t wifi_config = {
       .sta =
           {
@@ -85,7 +73,6 @@ esp_err_t wifi_init_sta(void) {
               .sae_h2e_identifier = "",
           },
   };
-#endif
   const char *ssid = (const char *)wifi_config.sta.ssid;
   ESP_LOGI(TAG, "%s", ssid);
   ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));

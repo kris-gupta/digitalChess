@@ -1,0 +1,6 @@
+# Applied to any new per-environment sdkconfig.<env> that PlatformIO
+# generates fresh. The default 3584-byte main task stack overflows during
+# the TLS handshake to lichess.org (esp_crt_bundle_attach + mbedtls use a
+# lot of stack) — bumped to 8192, matching the hand-tuned esp32dev config.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+CONFIG_MAIN_TASK_STACK_SIZE=8192

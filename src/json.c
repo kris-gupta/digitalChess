@@ -5,6 +5,7 @@
 
 #include "esp_log.h"
 
+#include "ansi.h"
 #include "json.h"
 
 struct json json_parse(const char *buf, int len, int max_tokens) {
@@ -60,8 +61,10 @@ const char *json_get_value(const struct json *j, const char *buf,
 }
 
 void json_print(struct json j, char *buffer, int max_len) {
+  fputs(ANSI_CYAN, stdout);
   for (int i = 0; i < j.count; i++) {
     printf("%*s", j.tokens[i].end - j.tokens[i].start,
            buffer + j.tokens[i].start);
   }
+  fputs(ANSI_RESET, stdout);
 }

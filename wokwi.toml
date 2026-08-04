@@ -1,4 +1,0 @@
-[wokwi]
-version = 1
-firmware = ".pio/build/wokwi/flasher_args.json"
-elf = ".pio/build/wokwi/firmware.elf"

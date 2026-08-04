@@ -1,14 +1,16 @@
 #include "board.h"
+#include <ctype.h>
+#include <stdio.h>
 #include <string.h>
 
+#include "ansi.h"
+#include "driver/gpio.h"
+#include "driver/uart.h"
+#include "driver/uart_vfs.h"
+#include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-
-#ifndef WOKWI_SIMULATION
-#include "driver/gpio.h"
-#include "esp_rom_sys.h"
 #include "pins.h"
-#endif
 
 // Piece index layout: 0-7  = white back rank (a1..h1)
 //                    8-15  = white pawns     (a2..h2)
@@ -68,31 +70,96 @@ void board_init(struct Game *game) {
   }
 }
 
-#ifdef WOKWI_SIMULATION
+#ifdef DEMO_MODE
 
 struct Move scanb(void) {
-  // TEMPORARY test stand-in — see board.h. Plays back a fixed opening
-  // (Ruy Lopez: e4 e5 Nf3 Nc6 Bb5 a6) with a delay per move, then blocks
-  // forever once exhausted so the simulator doesn't loop and hammer the
-  // Lichess API with repeat pushes.
-  static const struct Move test_moves[] = {
+  // Scripted opening (Italian/Ruy Lopez lines, no castling) played back one
+  // move every DEMO_MOVE_INTERVAL_MS, so the broadcast can be watched live
+  // on lichess.org without needing the physical sensor board wired up.
+  static const struct Move demo_moves[] = {
       {0x41, 0x43}, // e2e4
       {0x46, 0x44}, // e7e5
       {0x60, 0x52}, // g1f3
       {0x17, 0x25}, // b8c6
       {0x50, 0x14}, // f1b5
       {0x06, 0x05}, // a7a6
+      {0x14, 0x03}, // b5a4
+      {0x67, 0x55}, // g8f6
+      {0x31, 0x32}, // d2d3
+      {0x57, 0x24}, // f8c5
+      {0x21, 0x22}, // c2c3
+      {0x36, 0x35}, // d7d6
   };
-  static const int num_test_moves = sizeof(test_moves) / sizeof(test_moves[0]);
+  static const int num_demo_moves = sizeof(demo_moves) / sizeof(demo_moves[0]);
   static int idx = 0;
 
-  vTaskDelay(pdMS_TO_TICKS(3000)); // stand-in for a physical piece lift
+#define DEMO_MOVE_INTERVAL_MS 5000
+  vTaskDelay(pdMS_TO_TICKS(DEMO_MOVE_INTERVAL_MS));
 
-  if (idx >= num_test_moves) {
+  if (idx >= num_demo_moves) {
     vTaskDelay(portMAX_DELAY); // sequence exhausted; stop pushing
   }
 
-  return test_moves[idx++];
+  return demo_moves[idx++];
+}
+
+#elif defined(MANUAL_MODE)
+
+static bool console_ready = false;
+
+// By default UART0 (shared with esp_log output) uses a simple polling
+// read that doesn't yield to the scheduler while blocked — fine for logs,
+// but blocking on it here while waiting for a typed move would starve the
+// idle task and trip the watchdog (the same class of bug fixed in
+// SCAN_PASS_DELAY_MS above). Switching to the interrupt-driven UART driver
+// makes stdin's blocking read actually sleep the task instead of spinning.
+static void manual_console_init(void) {
+  uart_driver_install(UART_NUM_0, 256, 0, 0, NULL, 0);
+  uart_vfs_dev_use_driver(UART_NUM_0);
+  uart_vfs_dev_port_set_rx_line_endings(UART_NUM_0, ESP_LINE_ENDINGS_CR);
+  uart_vfs_dev_port_set_tx_line_endings(UART_NUM_0, ESP_LINE_ENDINGS_CRLF);
+  console_ready = true;
+}
+
+// Parses one square like "e4" into the packed nibble format used by struct
+// Move (high nibble = file 0-7, low nibble = rank 0-7). Case-insensitive.
+static bool parse_square(char file_ch, char rank_ch, uint8_t *out) {
+  char f = (char)tolower((unsigned char)file_ch);
+  if (f < 'a' || f > 'h' || rank_ch < '1' || rank_ch > '8')
+    return false;
+  *out = (uint8_t)(((f - 'a') << 4) | (rank_ch - '1'));
+  return true;
+}
+
+// Blocks on a line typed into the serial console, in the same 4-character
+// UCI format move_to_uci() writes (e.g. "e2e4"), and reprompts on anything
+// that doesn't parse as two valid squares.
+struct Move scanb(void) {
+  if (!console_ready)
+    manual_console_init();
+
+  char line[32];
+  while (1) {
+    printf("\n" ANSI_CYAN "move (UCI, e.g. e2e4): " ANSI_RESET);
+    fflush(stdout);
+
+    if (!fgets(line, sizeof(line), stdin))
+      continue;
+
+    size_t len = strlen(line);
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+      line[--len] = '\0';
+
+    struct Move m;
+    if (len == 4 && parse_square(line[0], line[1], &m.from) &&
+        parse_square(line[2], line[3], &m.to)) {
+      printf(ANSI_CYAN "-> %.4s" ANSI_RESET "\n", line);
+      return m;
+    }
+    printf(ANSI_CYAN "invalid move '%s' - expected 4 characters like e2e4" ANSI_RESET
+                      "\n",
+           line);
+  }
 }
 
 #else // real hardware: hall-effect sensor matrix
@@ -102,7 +169,10 @@ struct Move scanb(void) {
 #define DEBOUNCE_SCANS 3
 
 // Delay between full-board scan passes while waiting for the next event.
-#define SCAN_PASS_DELAY_MS 2
+// Must round up to at least one FreeRTOS tick (pdMS_TO_TICKS truncates) or
+// vTaskDelay() becomes a no-op that never yields to the idle task, starving
+// the task watchdog. At the default 100 Hz tick rate that floor is 10 ms.
+#define SCAN_PASS_DELAY_MS 10
 
 // Settle time after enabling a row's /OE before the sensor reading is
 // trusted (shift-register output driver + hall sensor propagation delay).
@@ -241,7 +311,7 @@ struct Move scanb(void) {
   return m;
 }
 
-#endif // WOKWI_SIMULATION
+#endif // DEMO_MODE
 
 bool board_apply_move(struct Game *game, struct Move m, bool *skip_next) {
   uint8_t ff = m.from >> 4;

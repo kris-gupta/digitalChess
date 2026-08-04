@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "ansi.h"
 #include "board.h"
 #include "chess.h"
 #include "http.h"
@@ -27,6 +29,53 @@ static const char *TAG = "app_main";
 // A full 100-move game with headers fits comfortably inside 4 KB.
 #define PGN_BUF_SIZE 4096
 
+// Recolors ESP_LOG output by level (CONFIG_LOG_COLORS is off, so the format
+// string here is plain and starts with the level letter: 'E'/'W'/'I'/...).
+// Registered as the log backend in app_main() so it applies to every
+// ESP_LOG call in the app, including from IDF components like wifi.
+static int colored_vprintf(const char *fmt, va_list args) {
+  char buf[512];
+  int full_len = vsnprintf(buf, sizeof(buf), fmt, args);
+  if (full_len <= 0)
+    return full_len;
+
+  int written = full_len < (int)sizeof(buf) ? full_len : (int)sizeof(buf) - 1;
+  bool has_nl = (written > 0 && buf[written - 1] == '\n');
+  if (has_nl)
+    buf[written - 1] = '\0';
+
+  const char *color;
+  switch (buf[0]) {
+  case 'E':
+    color = ANSI_RED;
+    break;
+  case 'W':
+    color = ANSI_YELLOW;
+    break;
+  case 'I':
+    color = ANSI_BLUE;
+    break;
+  default:
+    color = ANSI_CYAN;
+    break;
+  }
+
+  fputs(color, stdout);
+  fputs(buf, stdout);
+  fputs(ANSI_RESET, stdout);
+  if (has_nl)
+    fputc('\n', stdout);
+
+  return full_len;
+}
+
+// Installed as a constructor (rather than at the top of app_main) so it's
+// live for as much of the boot log as application code can reach — ESP-IDF
+// component init logs run before app_main is ever called.
+__attribute__((constructor)) static void install_colored_log(void) {
+  esp_log_set_vprintf(colored_vprintf);
+}
+
 static esp_err_t check_http_status(esp_http_client_handle_t clt) {
   int status = esp_http_client_get_status_code(clt);
   if (status >= 400) {
@@ -36,23 +85,30 @@ static esp_err_t check_http_status(esp_http_client_handle_t clt) {
   return ESP_OK;
 }
 
-// Parses the first "id" string field from the JSON currently in response_buffer
-// into out (null-terminated). Clears response_buffer afterwards.
-static esp_err_t parse_id(const char *response_buffer, char *out,
-                          size_t out_size) {
+// Parses the first string field named `key` out of the JSON in
+// response_buffer into out (null-terminated).
+static esp_err_t parse_field(const char *response_buffer, const char *key,
+                             char *out, size_t out_size) {
   struct json j = json_parse(response_buffer, strlen(response_buffer), 256);
   if (!j.tokens)
     return ESP_FAIL;
 
-  int id_len = 0;
-  const char *id = json_get_value(&j, response_buffer, "id", &id_len);
-  if (id && id_len > 0) {
-    int copy = id_len < (int)out_size - 1 ? id_len : (int)out_size - 1;
-    memcpy(out, id, copy);
+  int val_len = 0;
+  const char *val = json_get_value(&j, response_buffer, key, &val_len);
+  if (val && val_len > 0) {
+    int copy = val_len < (int)out_size - 1 ? val_len : (int)out_size - 1;
+    memcpy(out, val, copy);
     out[copy] = '\0';
   }
   json_free(&j);
   return out[0] ? ESP_OK : ESP_FAIL;
+}
+
+// Parses the first "id" string field from the JSON currently in response_buffer
+// into out (null-terminated).
+static esp_err_t parse_id(const char *response_buffer, char *out,
+                          size_t out_size) {
+  return parse_field(response_buffer, "id", out, out_size);
 }
 
 // Creates a Lichess broadcast tournament and its first round.
@@ -64,7 +120,7 @@ static esp_err_t create_broadcast(esp_http_client_handle_t clt,
   esp_http_client_set_header(clt, "Authorization", BEARER_TOKEN);
 
   // 1. Create tournament
-  esp_err_t err = http_post(clt, "https://lichess.org/api/broadcast/new",
+  esp_err_t err = http_post(clt, "https://lichess.org/broadcast/new",
                             "application/x-www-form-urlencoded",
                             "name=Physical+Chess&shortDescription=OTB+game");
   if (err != ESP_OK || check_http_status(clt) != ESP_OK)
@@ -79,7 +135,7 @@ static esp_err_t create_broadcast(esp_http_client_handle_t clt,
   // 2. Create round inside the tournament
   char round_url[96];
   snprintf(round_url, sizeof(round_url),
-           "https://lichess.org/api/broadcast/%s/new", tour_id);
+           "https://lichess.org/broadcast/%s/new", tour_id);
   err = http_post(clt, round_url, "application/x-www-form-urlencoded",
                   "name=Game+1");
   if (err != ESP_OK || check_http_status(clt) != ESP_OK)
@@ -89,9 +145,18 @@ static esp_err_t create_broadcast(esp_http_client_handle_t clt,
     ESP_LOGE(TAG, "failed to parse broadcast round id");
     return ESP_FAIL;
   }
+
+  // Lichess returns the round's real spectator URL directly in the response
+  // (BroadcastRoundInfo.url) — use that instead of guessing at a slug format.
+  char spectator_url[128] = {0};
+  parse_field(response_buffer, "url", spectator_url, sizeof(spectator_url));
   memset(response_buffer, 0, MAX_HTTP_RECV_BUFFER);
 
-  ESP_LOGI(TAG, "Broadcast: https://lichess.org/broadcast/-/%s", round_id);
+  if (spectator_url[0])
+    ESP_LOGI(TAG, "Broadcast: %s", spectator_url);
+  else
+    ESP_LOGW(TAG, "created broadcast round %s but could not parse its url",
+             round_id);
   return ESP_OK;
 }
 
@@ -161,18 +226,9 @@ void app_main(void) {
       .transport_type = HTTP_TRANSPORT_OVER_SSL,
       .event_handler = http_event_handler,
       .user_data = response_buffer,
-#ifndef WOKWI_SIMULATION
       .crt_bundle_attach = esp_crt_bundle_attach,
-#endif
       .timeout_ms = 30000,
   };
-#ifdef WOKWI_SIMULATION
-  // Skips server certificate verification: Wokwi's simulated CPU takes ~20s
-  // to do a full crt-bundle RSA/ECDSA chain verify, long enough to starve
-  // the task watchdog and stall the handshake. sdkconfig.wokwi enables
-  // CONFIG_ESP_TLS_SKIP_SERVER_CERT_VERIFY to allow this. Real hardware
-  // (sdkconfig.esp32dev) always verifies via crt_bundle_attach above.
-#endif
   clt = http_init(response_buffer, &cfg);
 
   // Create the broadcast — the spectator URL is logged to serial
