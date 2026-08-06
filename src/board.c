@@ -174,7 +174,7 @@ struct Move scanb(void) {
 // the task watchdog. At the default 100 Hz tick rate that floor is 10 ms.
 #define SCAN_PASS_DELAY_MS 10
 
-// Settle time after enabling a row's /OE before the sensor reading is
+// Settle time after latching a column select before the row readings are
 // trusted (shift-register output driver + hall sensor propagation delay).
 #define ROW_SETTLE_US 5
 
@@ -192,12 +192,11 @@ static void sensors_init_gpio(void) {
   configure_output(PIN_SRCLK, 0);
   configure_output(PIN_RCLK, 0);
 
-  for (int r = 0; r < 8; r++)
-    configure_output(OE_PINS[r], 1); // active-low: start disabled
-
-  gpio_reset_pin(PIN_SENSOR);
-  gpio_set_direction(PIN_SENSOR, GPIO_MODE_INPUT);
-  gpio_set_pull_mode(PIN_SENSOR, GPIO_PULLUP_ONLY);
+  for (int r = 0; r < 8; r++) {
+    gpio_reset_pin(ROW_PINS[r]);
+    gpio_set_direction(ROW_PINS[r], GPIO_MODE_INPUT);
+    gpio_set_pull_mode(ROW_PINS[r], GPIO_PULLUP_ONLY);
+  }
 }
 
 // Loads an 8-bit "walking one" pattern (bit `file` set, rest clear) into
@@ -215,18 +214,17 @@ static void shift_out_column(uint8_t file) {
   gpio_set_level(PIN_RCLK, 1);
 }
 
-// Reads all 64 sensors: for each file, load the column-select pattern once,
-// then walk through the 8 rows, enabling one row's /OE at a time so only a
-// single sensor is ever powered.
+// Reads all 64 sensors: for each file, load the column-select pattern once
+// (each row's shift register then powers only that row's sensor for this
+// file), let the readings settle, then read all 8 rows back in parallel off
+// their dedicated pins. 8 shift-register loads total instead of 64 per-row
+// selects.
 static void scan_board_raw(bool out[8][8]) {
   for (uint8_t file = 0; file < 8; file++) {
     shift_out_column(file);
-    for (uint8_t rank = 0; rank < 8; rank++) {
-      gpio_set_level(OE_PINS[rank], 0); // enable this row
-      esp_rom_delay_us(ROW_SETTLE_US);
-      out[rank][file] = (gpio_get_level(PIN_SENSOR) == SENSOR_ACTIVE_LEVEL);
-      gpio_set_level(OE_PINS[rank], 1); // disable
-    }
+    esp_rom_delay_us(ROW_SETTLE_US);
+    for (uint8_t rank = 0; rank < 8; rank++)
+      out[rank][file] = (gpio_get_level(ROW_PINS[rank]) == SENSOR_ACTIVE_LEVEL);
   }
 }
 
